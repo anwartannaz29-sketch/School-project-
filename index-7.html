@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<!--
+  AnwarTannaz — Voice-controlled web presentation (v3)
+  ----------------------------------------------------
+  Single file: HTML + CSS + vanilla JS. No build step. Save as index.html.
+
+  RUN IT (voice needs Chrome or Edge):
+      python3 -m http.server 8000     (inside this folder)
+      open  http://localhost:8000/index.html
+
+  VOICE COMMANDS (EN / AR):
+    Next     : "next", "forward", "التالي", "بعد"
+    Previous : "previous", "back", "السابق", "قبل"
+    Extra    : "first / البداية", "last / النهاية", "stop / توقف" (mic off)
+  KEYBOARD / TOUCH: ← → / Space / Home / End, swipe, M = mic, ? = help
+  EDIT PROJECT LINKS: see CONFIG at the top of the script block.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>AnwarTannaz — Engineering the Future</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+/* =========================================================
+   1. TOKENS & BASE
+   ========================================================= */
+:root{
+  --bg1:#090D16; --bg2:#0D111D;
+  --ink:#e8f1ff; --muted:#8fa3c4;
+  --cyan:#00F2FE; --sky:#4FACFE; --blue:#3B82F6;
+  --line:rgba(255,255,255,.08);
+  --glass:linear-gradient(145deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
+  --grad:linear-gradient(135deg,#4FACFE,#00F2FE);
+  --ease:cubic-bezier(.22,.8,.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  color:var(--ink);
+  font-family:'Inter','Cairo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:linear-gradient(160deg,var(--bg1),var(--bg2));
+}
+.ar{font-family:'Cairo','Inter',sans-serif;direction:rtl;unicode-bidi:isolate;letter-spacing:0}
+.muted{color:var(--muted)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+button{font:inherit}
+
+/* Background: glowing ambient nodes + network canvas + grid + grain */
+.blob{position:fixed;z-index:0;border-radius:50%;filter:blur(90px);opacity:.28;pointer-events:none;will-change:transform;animation:drift 26s ease-in-out infinite alternate}
+.blob.b1{width:52vmax;height:52vmax;left:-18vmax;top:-20vmax;background:radial-gradient(circle,#3B82F6,transparent 65%)}
+.blob.b2{width:46vmax;height:46vmax;right:-16vmax;bottom:-18vmax;background:radial-gradient(circle,#00F2FE,transparent 65%);animation-duration:32s;animation-delay:-8s}
+.blob.b3{width:30vmax;height:30vmax;left:40%;top:30%;background:radial-gradient(circle,#4FACFE,transparent 65%);opacity:.14;animation-duration:38s}
+@keyframes drift{to{transform:translate3d(6vmax,4vmax,0) scale(1.12)}}
+#bg{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+.grid-floor{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:linear-gradient(rgba(79,172,254,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(79,172,254,.04) 1px,transparent 1px);
+  background-size:64px 64px;
+  -webkit-mask-image:radial-gradient(ellipse at center,#000 15%,transparent 72%);
+          mask-image:radial-gradient(ellipse at center,#000 15%,transparent 72%);
+}
+.noise{
+  position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.06;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.progress{position:fixed;top:0;left:0;right:0;height:2px;z-index:20;background:rgba(255,255,255,.04)}
+.progress span{display:block;height:100%;width:0;background:var(--grad);box-shadow:0 0 12px var(--cyan);transition:width .9s var(--ease)}
+
+/* =========================================================
+   2. SLIDES — horizontal slide + fade transitions
+   ========================================================= */
+#deck{position:fixed;inset:0;z-index:2}
+.slide{
+  position:absolute;inset:0;display:flex;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:thin;scrollbar-color:rgba(0,242,254,.3) transparent;
+  padding:clamp(84px,10vh,112px) clamp(18px,6vw,100px) 112px;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translate3d(0,0,0) scale(.97);
+  will-change:opacity,transform;
+  transition:opacity .8s var(--ease),transform .9s var(--ease),visibility 0s linear .8s;
+}
+.slide.before{transform:translate3d(-14%,0,0) scale(.95)}
+.slide.after {transform:translate3d(14%,0,0)  scale(.95)}
+.slide.active{opacity:1;visibility:visible;pointer-events:auto;transform:none;transition-delay:0s,0s,0s}
+.wrap{width:min(1240px,100%);margin:auto;display:grid;gap:clamp(18px,3vw,36px);align-items:center}
+.two{grid-template-columns:1.05fr .95fr}
+
+.reveal{opacity:0;translate:0 26px;transition:opacity .4s ease,translate .4s ease}
+.slide.active .reveal{opacity:1;translate:0 0;transition:opacity .9s ease var(--d,0s),translate 1s var(--ease) var(--d,0s)}
+
+.kicker{font-size:.72rem;letter-spacing:.28em;text-transform:uppercase;color:var(--cyan);font-weight:600;margin-bottom:10px}
+.title{
+  font-size:clamp(2.2rem,5.2vw,4.4rem);line-height:1.05;font-weight:800;letter-spacing:-.03em;
+  background:linear-gradient(120deg,#fff 10%,#b4dcff 55%,#00F2FE);-webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.title.ar{font-size:clamp(1.9rem,4.2vw,3.5rem);line-height:1.3;font-weight:800}
+.sub{font-size:clamp(1rem,2vw,1.5rem);color:#8cc3ff;font-weight:300;margin-top:6px}
+.head{text-align:center}
+.head+*{margin-top:clamp(4px,1vw,12px)}
+
+/* =========================================================
+   3. GLASS CARDS
+   ========================================================= */
+.card{
+  position:relative;overflow:hidden;border-radius:22px;padding:clamp(16px,2vw,28px);
+  background:var(--glass);border:1px solid var(--line);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  box-shadow:0 30px 60px -30px rgba(0,0,0,.85),inset 0 1px 0 rgba(255,255,255,.07),0 0 40px rgba(0,242,254,.05);
+}
+.card::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;
+  background:radial-gradient(420px circle at var(--gx,50%) var(--gy,0%),rgba(0,242,254,.15),transparent 60%)}
+.card:hover::before{opacity:1}
+.card::after{content:"";position:absolute;left:12%;right:12%;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,242,254,.7),transparent)}
+.tilt{
+  transform:perspective(900px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));
+  transition:opacity .4s ease,translate .4s ease,transform .25s ease,border-color .3s;
+}
+.slide.active .tilt{transition:opacity .9s ease var(--d,0s),translate 1s var(--ease) var(--d,0s),transform .25s ease,border-color .3s}
+.tilt:hover{border-color:rgba(0,242,254,.38)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:6px 12px;border-radius:99px;font-size:.78rem;border:1px solid rgba(0,242,254,.3);background:rgba(0,242,254,.06);color:#c4f7ff}
+.chip.value{background:var(--grad);color:#02131c;font-weight:800;border:0;box-shadow:0 0 24px rgba(0,242,254,.5)}
+.op{color:var(--cyan);font-weight:700;animation:blink 2s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+
+/* =========================================================
+   4. 3D PRIMITIVES
+   ========================================================= */
+.scene{position:relative;display:grid;place-items:center;perspective:1100px;min-height:clamp(260px,46vh,520px);filter:drop-shadow(0 0 22px rgba(0,242,254,.35))}
+.tilt3d{grid-area:1/1;display:grid;place-items:center;transform-style:preserve-3d;
+  transform:rotateX(calc(var(--my,0)*-9deg)) rotateY(calc(var(--mx,0)*12deg));transition:transform .45s ease-out}
+.rig{display:grid;place-items:center;transform-style:preserve-3d}
+.rig>*{grid-area:1/1}
+.spin{animation:spinY var(--spin,26s) linear infinite}
+.bb{animation:spinYr var(--spin,26s) linear infinite}
+@keyframes spinY {from{transform:rotateX(-18deg) rotateY(0)}to{transform:rotateX(-18deg) rotateY(360deg)}}
+@keyframes spinYr{from{transform:rotateY(0)}to{transform:rotateY(-360deg)}}
+
+.cube{--h:calc(var(--s)/2);width:var(--s);height:var(--s);position:relative;transform-style:preserve-3d;animation:tumble 22s linear infinite}
+.cube.abs{position:absolute;left:calc(var(--s)/-2);top:calc(var(--s)/-2)}
+.cube .face{
+  position:absolute;inset:0;display:grid;place-items:center;border:1px solid rgba(0,242,254,.75);
+  background:linear-gradient(135deg,rgba(59,130,246,.30),rgba(0,242,254,.07));
+  box-shadow:inset 0 0 28px rgba(0,242,254,.28);
+  font-weight:800;color:#c4f7ff;font-size:calc(var(--s)*.5);text-shadow:0 0 18px var(--cyan);
+}
+.cube.wire .face{background:transparent;box-shadow:0 0 14px rgba(0,242,254,.3),inset 0 0 14px rgba(0,242,254,.18)}
+.cube .f{transform:translateZ(var(--h))}
+.cube .b{transform:rotateY(180deg) translateZ(var(--h))}
+.cube .r{transform:rotateY(90deg) translateZ(var(--h))}
+.cube .l{transform:rotateY(-90deg) translateZ(var(--h))}
+.cube .t{transform:rotateX(90deg) translateZ(var(--h))}
+.cube .bt{transform:rotateX(-90deg) translateZ(var(--h))}
+@keyframes tumble{from{transform:rotateX(0) rotateY(0)}to{transform:rotateX(360deg) rotateY(360deg)}}
+
+.sphere{position:relative;transform-style:preserve-3d}
+.sphere .core{position:absolute;inset:20%;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#d4fbff,#00F2FE 22%,#2563eb 58%,#0b1b4a 100%);
+  box-shadow:0 0 60px rgba(0,242,254,.6),0 0 140px rgba(59,130,246,.45)}
+.sphere .ring{position:absolute;inset:0;border:1px solid rgba(0,242,254,.45);border-radius:50%}
+.sphere .ring.lat{inset:auto;border-color:rgba(79,172,254,.4)}
+
+.torus{position:relative;width:0;height:0;transform-style:preserve-3d}
+.torus .tr{position:absolute;left:0;top:0;border:1.5px solid rgba(79,172,254,.85);border-radius:50%;background:radial-gradient(circle,rgba(0,242,254,.06),transparent 70%)}
+
+.orbit{position:relative;width:0;height:0;transform-style:preserve-3d;animation:orbitY var(--t,16s) linear infinite}
+.sat{position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d;transform:translateX(var(--x))}
+@keyframes orbitY{from{transform:rotateX(var(--tilt,0deg)) rotateY(0)}to{transform:rotateX(var(--tilt,0deg)) rotateY(360deg)}}
+
+/* small decorative 3D object between cards / inside badges */
+.mini{display:grid;place-items:center;perspective:1600px;filter:drop-shadow(0 0 16px rgba(0,242,254,.5))}
+
+/* =========================================================
+   5. SLIDE 1 — HERO
+   ========================================================= */
+.hero h1{font-size:clamp(2.6rem,7vw,5.6rem);line-height:1;font-weight:800;letter-spacing:-.04em;
+  background:linear-gradient(120deg,#fff 5%,#b4dcff 45%,#00F2FE);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{margin:14px 0 22px}
+.motto{text-align:center;display:grid;gap:8px;margin-bottom:22px}
+.motto .ar{font-size:clamp(1.15rem,2.2vw,1.7rem);font-weight:700;line-height:1.7;color:#e6f6ff}
+.motto .en{font-size:.95rem;color:var(--muted);font-style:italic}
+.cta{
+  display:inline-flex;align-items:center;gap:12px;padding:14px 26px;border-radius:99px;border:0;cursor:pointer;
+  font-weight:700;font-size:.98rem;color:#02131c;background:var(--grad);
+  box-shadow:0 0 36px rgba(0,242,254,.45),inset 0 1px 0 rgba(255,255,255,.5);transition:transform .25s var(--ease),box-shadow .25s;
+}
+.cta:hover{transform:translateY(-2px) scale(1.03);box-shadow:0 0 54px rgba(0,242,254,.7),inset 0 1px 0 rgba(255,255,255,.5)}
+.cta svg{width:20px;height:20px}
+body[data-mic="listening"] .cta{background:rgba(0,242,254,.14);color:#c4f7ff;border:1px solid rgba(0,242,254,.5)}
+.hint{margin-top:14px;font-size:.78rem;color:var(--muted)}
+
+/* =========================================================
+   6. SLIDES 2 & 3 — LANGUAGES
+   ========================================================= */
+.duo{display:grid;grid-template-columns:1fr auto 1fr;gap:clamp(14px,3vw,40px);align-items:stretch}
+.duo .mini-orb{align-self:center}
+.lang{display:grid;gap:14px;align-content:start}
+.lang .top{display:flex;align-items:center;gap:14px}
+.badge{width:54px;height:54px;border-radius:16px;display:grid;place-items:center;font-weight:800;font-size:1.1rem;color:#c4f7ff;flex:none;
+  background:linear-gradient(145deg,rgba(59,130,246,.35),rgba(0,242,254,.1));border:1px solid rgba(0,242,254,.45);
+  box-shadow:0 0 22px rgba(0,242,254,.25),inset 0 0 14px rgba(0,242,254,.2)}
+.lang h3{font-size:1.3rem}
+.lang .lvl{font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);margin-top:2px}
+.lang .role{font-size:.98rem;line-height:1.6;color:#d3e4ff}
+.lang .role-ar{font-size:.95rem;line-height:1.9;color:var(--muted)}
+.card.hl{border-color:rgba(0,242,254,.32)}
+
+/* =========================================================
+   7. SLIDE 4 — SYNERGY
+   ========================================================= */
+.venn{width:100%;max-width:540px;margin:auto;filter:drop-shadow(0 0 24px rgba(0,242,254,.25))}
+.venn text{font-family:'Inter','Cairo',sans-serif;fill:#e8f1ff}
+.venn .circ{mix-blend-mode:screen}
+.venn .pulse{transform-box:fill-box;transform-origin:center;animation:pulse 3s ease-out infinite}
+@keyframes pulse{0%{transform:scale(.4);opacity:.9}100%{transform:scale(2.4);opacity:0}}
+.flow-line{stroke-dasharray:6 8;animation:dash 3s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-56}}
+.concept h3{font-size:.8rem;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);margin-bottom:10px}
+.concept p{font-size:1.05rem;line-height:1.65;color:#dbe9ff}
+.concept .ar{display:block;margin-top:12px;font-size:1rem;line-height:1.9;color:var(--muted)}
+.syn{display:grid;gap:14px}
+.mini-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.mini-row .card{padding:14px;text-align:center}
+.mini-row b{display:block;font-size:1.4rem;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mini-row span{font-size:.72rem;letter-spacing:.08em;color:var(--muted)}
+
+/* =========================================================
+   8. SLIDE 5 — PIPELINE
+   ========================================================= */
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(18px,2.6vw,34px)}
+.step{padding:20px;text-align:center;display:grid;gap:8px;justify-items:center;align-content:start;overflow:visible}
+.step::before{border-radius:inherit}
+.step .num{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-weight:800;color:#c4f7ff;
+  border:1px solid rgba(0,242,254,.45);background:rgba(0,242,254,.08);box-shadow:0 0 18px rgba(0,242,254,.3)}
+.step h3{font-size:1.02rem}
+.step p{font-size:.95rem;line-height:1.85;color:#c9daf5}
+.step .tool{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);padding:3px 10px;border:1px solid rgba(0,242,254,.3);border-radius:99px}
+.step.key{border-color:rgba(0,242,254,.32)}
+/* animated connectors between cards (desktop only) */
+.step:not(:nth-child(3n))::after{
+  content:"";position:absolute;top:50%;right:calc(-1 * clamp(18px,2.6vw,34px));width:clamp(18px,2.6vw,34px);height:2px;left:auto;
+  background:repeating-linear-gradient(90deg,var(--cyan) 0 6px,transparent 6px 12px);background-size:24px 2px;animation:conn 1s linear infinite;
+  box-shadow:0 0 10px var(--cyan)}
+@keyframes conn{to{background-position:24px 0}}
+.loop{text-align:center;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.loop b{color:var(--cyan)}
+
+/* =========================================================
+   9. SLIDE 6 — DEEP TECH
+   ========================================================= */
+.stack{display:flex;flex-wrap:wrap;justify-content:center;gap:14px}
+.tech{display:flex;align-items:center;gap:12px;padding:12px 20px 12px 14px;border-radius:16px;font-weight:700;font-size:1.05rem}
+.tech .mini{width:30px;height:30px}
+.tag-note{text-align:center;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.vs{display:grid;grid-template-columns:1fr auto 1fr;gap:clamp(12px,2.4vw,28px);align-items:stretch}
+.mind{display:grid;gap:12px;align-content:start}
+.mind h3{display:flex;align-items:baseline;gap:10px;font-size:1.15rem}
+.mind h3 small{font-size:.7rem;letter-spacing:.16em;text-transform:uppercase}
+.mind p{font-size:1rem;line-height:1.9;color:#d3e4ff}
+.mind.bad{border-color:rgba(248,113,113,.28)}
+.mind.bad h3 small{color:#fca5a5}
+.mind.good{border-color:rgba(0,242,254,.4);box-shadow:0 30px 60px -30px rgba(0,0,0,.85),0 0 50px rgba(0,242,254,.14),inset 0 1px 0 rgba(255,255,255,.07)}
+.mind.good h3 small{color:var(--cyan)}
+.vs-mid{display:grid;place-items:center;font-weight:800;color:var(--cyan);letter-spacing:.1em;font-size:.9rem}
+
+/* =========================================================
+   10. SLIDE 7 — PORTFOLIO
+   ========================================================= */
+.projects{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:stretch}
+.proj{display:grid;gap:14px;align-content:space-between;padding:22px}
+.proj.featured{border-color:rgba(0,242,254,.5);box-shadow:0 30px 70px -30px rgba(0,0,0,.9),0 0 70px rgba(0,242,254,.2),inset 0 1px 0 rgba(255,255,255,.08)}
+.proj .art{height:120px}
+.proj h3{font-size:1.25rem}
+.proj .host{font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;font-size:.74rem;color:var(--muted);word-break:break-all}
+.proj .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.tag{font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);padding:4px 10px;border:1px solid rgba(0,242,254,.3);border-radius:99px;white-space:nowrap}
+.tag.star{background:var(--grad);color:#02131c;border:0;font-weight:800}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 18px;border-radius:99px;text-decoration:none;font-weight:700;font-size:.9rem;
+  color:#02131c;background:var(--grad);box-shadow:0 0 26px rgba(0,242,254,.4);transition:transform .25s var(--ease),box-shadow .25s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 0 42px rgba(0,242,254,.7)}
+.btn:focus-visible,.cta:focus-visible,.mic:focus-visible{outline:2px solid #fff;outline-offset:3px}
+
+/* =========================================================
+   11. SLIDE 8 — CONCLUSION & Q&A
+   ========================================================= */
+.closing{text-align:center}
+.closing .title{margin-top:6px}
+.qa{display:grid;gap:16px;margin-top:22px;text-align:center}
+.qa h3{font-size:1.2rem}
+.qa-mic{
+  display:inline-flex;align-items:center;gap:14px;justify-self:center;padding:10px 20px 10px 12px;border-radius:99px;cursor:pointer;color:var(--ink);
+  background:rgba(0,242,254,.07);border:1px solid rgba(0,242,254,.35);transition:box-shadow .3s,border-color .3s;
+}
+.qa-mic:hover{box-shadow:0 0 30px rgba(0,242,254,.3)}
+.qa-mic .dot{width:12px;height:12px;border-radius:50%;background:#64748b;flex:none;margin-left:6px}
+body[data-mic="listening"] .qa-mic{border-color:rgba(0,242,254,.7);box-shadow:0 0 36px rgba(0,242,254,.3)}
+body[data-mic="listening"] .qa-mic .dot{background:#34d399;animation:ping 1.8s infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(52,211,153,.7)}100%{box-shadow:0 0 0 14px rgba(52,211,153,0)}}
+.qa-state{font-size:.85rem;font-weight:600}
+.final{font-size:1rem;line-height:1.7;color:#c9dcff}
+.final .ar{display:block;margin-top:6px;font-size:1.1rem;font-weight:700;color:#e6f6ff}
+
+/* =========================================================
+   12. WAVEFORM (shared by top-right widget + Q&A)
+   ========================================================= */
+.wave{display:flex;align-items:center;gap:3px;height:28px}
+.wave i{width:3px;height:6px;border-radius:3px;background:var(--grad);opacity:.35;transition:opacity .3s}
+body[data-mic="listening"] .wave i{opacity:1;animation:bar 1.1s ease-in-out infinite}
+body.hearing .wave i{animation-duration:.45s}
+.wave i:nth-child(1){animation-delay:-.9s}.wave i:nth-child(2){animation-delay:-.7s}.wave i:nth-child(3){animation-delay:-.5s}
+.wave i:nth-child(4){animation-delay:-.3s}.wave i:nth-child(5){animation-delay:-.6s}.wave i:nth-child(6){animation-delay:-.2s}.wave i:nth-child(7){animation-delay:-.8s}
+@keyframes bar{0%,100%{height:6px}50%{height:26px}}
+
+/* =========================================================
+   13. CHROME: mic widget (top-right), counter, dock, toast, help, notice
+   ========================================================= */
+.mic-widget{
+  position:fixed;top:16px;right:16px;z-index:30;display:flex;align-items:center;gap:12px;padding:8px 16px 8px 8px;border-radius:99px;max-width:calc(100vw - 32px);
+  background:rgba(9,13,22,.72);border:1px solid var(--line);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  box-shadow:0 20px 50px -15px #000;transition:border-color .3s,box-shadow .3s;
+}
+.mic-widget[data-state="listening"]{border-color:rgba(0,242,254,.55);box-shadow:0 20px 50px -15px #000,0 0 44px rgba(0,242,254,.28)}
+.mic-widget[data-state="denied"],.mic-widget[data-state="unsupported"]{border-color:rgba(248,113,113,.55)}
+.mic-widget.flash{animation:flash .6s ease}
+@keyframes flash{30%{box-shadow:0 0 0 6px rgba(0,242,254,.35),0 0 60px rgba(0,242,254,.6)}}
+.mic{width:42px;height:42px;border-radius:50%;border:0;cursor:pointer;display:grid;place-items:center;flex:none;color:#02131c;
+  background:var(--grad);box-shadow:0 0 22px rgba(0,242,254,.45);transition:transform .2s}
+.mic:hover{transform:scale(1.08)}
+.mic svg{width:19px;height:19px}
+.mic-widget[data-state="idle"] .mic{animation:ping2 2.4s infinite}
+@keyframes ping2{0%{box-shadow:0 0 0 0 rgba(0,242,254,.6)}100%{box-shadow:0 0 0 16px rgba(0,242,254,0)}}
+.mw-txt{display:grid;min-width:130px;max-width:230px;font-size:.76rem;line-height:1.35}
+.mw-txt b{font-weight:600;white-space:nowrap}
+.mw-txt span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.counter{position:fixed;left:22px;top:20px;z-index:25;display:grid;gap:2px;font-size:.74rem;letter-spacing:.2em;color:var(--muted);font-variant-numeric:tabular-nums}
+.counter .brand{font-weight:800;letter-spacing:.12em;color:#e8f1ff}
+.counter b{color:var(--cyan)}
+
+.dock{position:fixed;left:50%;bottom:20px;translate:-50% 0;z-index:30;display:flex;align-items:center;gap:14px;padding:8px 12px;border-radius:99px;max-width:calc(100vw - 20px);
+  background:rgba(9,13,22,.72);border:1px solid var(--line);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:0 20px 50px -15px #000}
+.dock button{cursor:pointer;border:0;background:transparent;color:var(--muted)}
+.dock .arrow{width:36px;height:36px;border-radius:50%;font-size:1.3rem;line-height:1;border:1px solid var(--line);color:#c4f7ff}
+.dock .arrow:hover{background:rgba(0,242,254,.12)}
+.dots{display:flex;gap:10px;align-items:center}
+.dots button{width:9px;height:9px;border-radius:50%;border:1px solid rgba(79,172,254,.6);padding:0;transition:.3s}
+.dots button.on{background:var(--cyan);box-shadow:0 0 12px var(--cyan);transform:scale(1.4);border-color:var(--cyan)}
+.seg{display:flex;padding:3px;border-radius:99px;background:rgba(255,255,255,.05)}
+.seg button{padding:6px 11px;border-radius:99px;font-size:.72rem;font-weight:600}
+.seg button.on{background:rgba(0,242,254,.18);color:#c4f7ff}
+.dock .help-btn{width:30px;height:30px;border-radius:50%;font-weight:700;border:1px solid var(--line);color:#c4f7ff}
+
+.toast{position:fixed;left:50%;top:84px;translate:-50% -20px;z-index:40;opacity:0;pointer-events:none;width:max-content;max-width:min(92vw,640px);text-align:center;line-height:1.45;
+  padding:10px 20px;border-radius:22px;font-weight:600;font-size:.9rem;color:#02131c;background:var(--grad);box-shadow:0 0 40px rgba(0,242,254,.6);transition:opacity .3s,translate .3s var(--ease)}
+.toast.show{opacity:1;translate:-50% 0}
+
+.help{position:fixed;right:16px;top:84px;z-index:35;width:min(350px,calc(100vw - 32px))}
+.help[hidden],.notice[hidden]{display:none}
+.help h3{font-size:.8rem;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);margin:0 0 10px}
+.help h3:not(:first-child){margin-top:16px}
+.help ul{list-style:none;display:grid;gap:8px;font-size:.84rem}
+.help li{display:flex;justify-content:space-between;gap:12px}
+.help li span:last-child{color:var(--muted);text-align:right}
+.help kbd{font:600 .75rem 'JetBrains Mono',ui-monospace,monospace;padding:2px 7px;border-radius:6px;border:1px solid var(--line);background:rgba(255,255,255,.05)}
+.help p{margin-top:14px;font-size:.74rem;line-height:1.5;color:var(--muted)}
+.notice{position:fixed;bottom:84px;left:50%;translate:-50% 0;z-index:45;max-width:min(92vw,580px);display:flex;gap:14px;align-items:center;padding:14px 18px;border-radius:16px;font-size:.85rem;line-height:1.5;
+  background:rgba(9,13,22,.94);border:1px solid rgba(248,113,113,.5);box-shadow:0 20px 50px -15px #000}
+.notice button{cursor:pointer;font-weight:600;padding:6px 14px;border-radius:99px;border:1px solid var(--line);background:rgba(0,242,254,.12);color:#c4f7ff}
+
+/* =========================================================
+   14. RESPONSIVE & REDUCED MOTION
+   ========================================================= */
+@media (max-width:980px){
+  .two,.vs,.duo{grid-template-columns:1fr}
+  .duo .mini-orb,.vs-mid{display:none}
+  .projects,.flow{grid-template-columns:1fr 1fr}
+  .step::after{display:none!important}
+  .scene{min-height:260px}
+  .mw-txt{display:none}
+  .mic-widget{padding:6px 12px 6px 6px}
+}
+@media (max-width:620px){
+  .projects,.flow{grid-template-columns:1fr}
+  .dock{gap:8px;padding:6px 8px}
+  .seg button{padding:5px 8px}
+  .dots{gap:7px}
+  .counter .brand{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition-duration:.01ms!important;transition-delay:0s!important}
+  .rig.spin{transform:rotateX(-18deg) rotateY(35deg)}
+  .bb{transform:rotateY(-35deg)}
+  .cube{transform:rotateX(-24deg) rotateY(36deg)}
+  .orbit{transform:rotateX(var(--tilt,0deg)) rotateY(50deg)}
+}
+</style>
+</head>
+
+<body data-mic="idle">
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<canvas id="bg"></canvas>
+<div class="grid-floor"></div>
+<div class="noise"></div>
+<div class="progress"><span id="progressBar"></span></div>
+
+<main id="deck">
+
+  <!-- ===================== 1 · HERO ===================== -->
+  <section class="slide active" data-title="Hero">
+    <div class="wrap two hero">
+      <div>
+        <div class="reveal" style="--d:.1s"><div class="kicker">Interactive · Voice-controlled</div></div>
+        <h1 class="reveal" style="--d:.2s">AnwarTannaz</h1>
+        <p class="sub reveal" style="--d:.3s">1st Year Experimental Sciences &nbsp;|&nbsp; AI Creator &amp; Innovator</p>
+        <div class="card motto tilt reveal" style="--d:.4s">
+          <div class="ar">لا أستهلك التكنولوجيا، بل أطوّعها لأصنع بها المستقبل</div>
+          <div class="en">“Not just using tech, engineering the future”</div>
+        </div>
+        <div class="reveal" style="--d:.55s">
+          <button class="cta" id="heroCta">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+            <span id="heroCtaTxt">Start Voice Navigation</span>
+          </button>
+          <p class="hint">Say “Next” · “التالي” — or use ← → / swipe</p>
+        </div>
+      </div>
+
+      <!-- 3D wireframe core -->
+      <div class="scene reveal" style="--d:.35s">
+        <div class="tilt3d"><div class="rig spin" style="--spin:30s">
+          <div class="sphere" data-size="200"></div>
+          <div class="torus" data-R="160" data-r="16" data-n="30" style="transform:rotateX(72deg)"></div>
+          <div class="torus" data-R="118" data-r="10" data-n="24" style="transform:rotateX(72deg) rotateY(40deg)"></div>
+          <div class="cube wire abs" data-size="120" style="animation-duration:30s"></div>
+          <div class="orbit" style="--t:14s;--tilt:25deg"><div class="sat" style="--x:235px"><div class="cube wire abs" data-size="36"></div></div></div>
+          <div class="orbit" style="--t:20s;--tilt:-35deg"><div class="sat" style="--x:205px"><div class="cube wire abs" data-size="26"></div></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 2 · LANGUAGES (technical & academic) ===================== -->
+  <section class="slide" data-title="Core Languages">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">02 · Core Languages</div>
+        <h2 class="title ar">المنظومة اللغوية: محركات المعرفة</h2>
+        <p class="sub">Technical &amp; Academic</p>
+      </div>
+      <div class="duo">
+        <div class="card lang tilt reveal" style="--d:.25s">
+          <div class="top"><div class="badge">En</div><div><h3>English</h3><div class="lvl">Fluent</div></div></div>
+          <p class="role">Primary engine for tech, programming, reading AI research papers, and writing detailed prompts.</p>
+          <p class="role-ar ar">المحرك الأساسي للتقنية والبرمجة وقراءة أبحاث الذكاء الاصطناعي وكتابة البرومبتات التفصيلية.</p>
+          <div class="chips"><span class="chip">Tech</span><span class="chip">Programming</span><span class="chip">AI Papers</span><span class="chip">Prompts</span></div>
+        </div>
+        <div class="mini-orb reveal" style="--d:.4s"><div class="mini" style="width:100px;height:100px"><div class="rig spin" style="--spin:18s"><div class="sphere" data-size="54"></div><div class="torus" data-R="38" data-r="5" data-n="20" style="transform:rotateX(70deg)"></div></div></div></div>
+        <div class="card lang tilt reveal" style="--d:.35s">
+          <div class="top"><div class="badge">Fr</div><div><h3>French</h3><div class="lvl">Academic</div></div></div>
+          <p class="role">Foundation for academic studies and scientific methodology in experimental sciences.</p>
+          <p class="role-ar ar">أساس الدراسة الأكاديمية والمنهجية العلمية في العلوم التجريبية.</p>
+          <div class="chips"><span class="chip">Academics</span><span class="chip">Scientific Method</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 3 · LANGUAGES (thinking & growth) ===================== -->
+  <section class="slide" data-title="Thinking & Growth">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">03 · Thinking &amp; Growth</div>
+        <h2 class="title ar">المنظومة اللغوية: التفكير والشغف</h2>
+        <p class="sub">Languages for Thinking &amp; Growth</p>
+      </div>
+      <div class="duo">
+        <div class="card lang tilt reveal" style="--d:.25s">
+          <div class="top"><div class="badge">ع</div><div><h3>Arabic · <span class="ar">العربية</span></h3><div class="lvl">Native</div></div></div>
+          <p class="role">Language of deep cognitive thinking, concept framing, and semantic prompt precision.</p>
+          <p class="role-ar ar">لغة التفكير المعرفي العميق، وصياغة المفاهيم، ودقّة البرومبت الدلالية.</p>
+          <div class="chips"><span class="chip">Deep Thinking</span><span class="chip">Concept Framing</span><span class="chip">Prompt Precision</span></div>
+        </div>
+        <div class="mini-orb reveal" style="--d:.4s"><div class="mini" style="width:100px;height:100px"><div class="rig spin" style="--spin:16s"><div class="cube wire abs" data-size="46"></div><div class="torus" data-R="40" data-r="5" data-n="20" style="transform:rotateX(70deg)"></div></div></div></div>
+        <div class="card lang tilt reveal" style="--d:.35s">
+          <div class="top"><div class="badge">De</div><div><h3>German</h3><div class="lvl">Passion</div></div></div>
+          <p class="role">Personal passion for language learning, expanding cultural and technical horizons.</p>
+          <p class="role-ar ar">شغف شخصي بتعلّم اللغات وتوسيع الآفاق الثقافية والتقنية.</p>
+          <div class="chips"><span class="chip">Passion</span><span class="chip">Culture</span><span class="chip">Tech Horizons</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 4 · SKILL SYNERGY ===================== -->
+  <section class="slide" data-title="Skill Synergy">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">04 · Skill Synergy</div>
+        <h2 class="title ar">تناغم المهارات <span style="font-weight:600">(Skill Synergy)</span></h2>
+      </div>
+      <div class="wrap two" style="gap:clamp(18px,3vw,48px)">
+        <div class="reveal" style="--d:.25s">
+          <svg class="venn" viewBox="0 0 520 440" role="img" aria-label="Venn diagram: Multilingual Research, Analytical Thinking and Prompt Engineering combine into high-speed, high-quality execution">
+            <defs>
+              <radialGradient id="vA"><stop offset="0" stop-color="#00F2FE" stop-opacity=".55"/><stop offset="1" stop-color="#00F2FE" stop-opacity=".12"/></radialGradient>
+              <radialGradient id="vB"><stop offset="0" stop-color="#3B82F6" stop-opacity=".6"/><stop offset="1" stop-color="#3B82F6" stop-opacity=".12"/></radialGradient>
+              <radialGradient id="vC"><stop offset="0" stop-color="#4FACFE" stop-opacity=".6"/><stop offset="1" stop-color="#4FACFE" stop-opacity=".12"/></radialGradient>
+              <radialGradient id="vV"><stop offset="0" stop-color="#fff" stop-opacity=".95"/><stop offset="1" stop-color="#00F2FE" stop-opacity="0"/></radialGradient>
+            </defs>
+            <circle class="circ" cx="205" cy="165" r="118" fill="url(#vA)" stroke="#00F2FE" stroke-opacity=".7"/>
+            <circle class="circ" cx="315" cy="165" r="118" fill="url(#vB)" stroke="#3B82F6" stroke-opacity=".7"/>
+            <circle class="circ" cx="260" cy="262" r="118" fill="url(#vC)" stroke="#4FACFE" stroke-opacity=".7"/>
+            <g stroke="#c4f7ff" stroke-width="1.4" class="flow-line" opacity=".8">
+              <line x1="205" y1="165" x2="260" y2="203"/><line x1="315" y1="165" x2="260" y2="203"/><line x1="260" y1="262" x2="260" y2="203"/>
+            </g>
+            <g fill="#fff">
+              <circle r="3.5"><animateMotion dur="2.6s" repeatCount="indefinite" path="M205,165 L260,203"/></circle>
+              <circle r="3.5"><animateMotion dur="2.6s" begin=".8s" repeatCount="indefinite" path="M315,165 L260,203"/></circle>
+              <circle r="3.5"><animateMotion dur="2.6s" begin="1.6s" repeatCount="indefinite" path="M260,262 L260,203"/></circle>
+            </g>
+            <circle class="pulse" cx="260" cy="203" r="26" fill="none" stroke="#00F2FE" stroke-width="2"/>
+            <circle cx="260" cy="203" r="32" fill="url(#vV)"/>
+            <text x="260" y="207" text-anchor="middle" font-size="11" font-weight="800" letter-spacing="2" style="fill:#02131c">BUILD</text>
+
+            <text x="150" y="124" text-anchor="middle" font-size="15" font-weight="700">Multilingual</text>
+            <text x="150" y="143" text-anchor="middle" font-size="15" font-weight="700">Research</text>
+            <text x="150" y="162" text-anchor="middle" font-size="12" class="ar" opacity=".7">بحث متعدد اللغات</text>
+            <text x="372" y="124" text-anchor="middle" font-size="15" font-weight="700">Analytical</text>
+            <text x="372" y="143" text-anchor="middle" font-size="15" font-weight="700">Thinking</text>
+            <text x="372" y="162" text-anchor="middle" font-size="12" class="ar" opacity=".7">تفكير تحليلي</text>
+            <text x="260" y="322" text-anchor="middle" font-size="15" font-weight="700">Prompt</text>
+            <text x="260" y="341" text-anchor="middle" font-size="15" font-weight="700">Engineering</text>
+            <text x="260" y="360" text-anchor="middle" font-size="12" class="ar" opacity=".7">هندسة البرومبت</text>
+          </svg>
+        </div>
+        <div class="syn">
+          <div class="card concept tilt reveal" style="--d:.35s">
+            <h3>Concept</h3>
+            <p>Fusing multilingual research + analytical thinking + prompt engineering to drive high-speed, high-quality execution.</p>
+            <span class="ar">دمج البحث متعدد اللغات والتفكير التحليلي وهندسة البرومبت لتحقيق تنفيذ سريع وعالي الجودة.</span>
+          </div>
+          <div class="mini-row reveal" style="--d:.5s">
+            <div class="card tilt"><b>01</b><span>RESEARCH</span></div>
+            <div class="card tilt"><b>02</b><span>THINKING</span></div>
+            <div class="card tilt"><b>03</b><span>PROMPTING</span></div>
+          </div>
+          <div class="chips reveal" style="--d:.65s;justify-content:center">
+            <span class="chip">Research</span><span class="op">+</span><span class="chip">Thinking</span><span class="op">+</span><span class="chip">Prompting</span><span class="op">=</span><span class="chip value">Execution</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 5 · ITERATIVE AI PIPELINE ===================== -->
+  <section class="slide" data-title="Iterative AI Pipeline">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">05 · My Workflow</div>
+        <h2 class="title ar">خوارزمية التطوير الشخصية</h2>
+        <p class="sub">Iterative AI Pipeline</p>
+      </div>
+      <div class="flow">
+        <div class="card step tilt reveal" style="--d:.2s"><div class="num">1</div><h3>Cognitive Processing</h3><p class="ar">فهم وفك الأفكار ذهنياً قبل البدء.</p></div>
+        <div class="card step tilt reveal" style="--d:.3s"><div class="num">2</div><h3>Brainstorming with AI</h3><p class="ar">مناقشة المنطق والافتراضات مع نموذج ذكاء اصطناعي.</p></div>
+        <div class="card step tilt reveal" style="--d:.4s"><div class="num">3</div><h3>UX/UI Framing</h3><p class="ar">التخطيط البصري والهيكلي لواجهة العرض.</p></div>
+        <div class="card step key tilt reveal" style="--d:.5s"><div class="num">4</div><h3>Engineering via Claude</h3><span class="tool">Claude</span><p class="ar">صياغة البرومبت البرمجي الشامل والتنفيذ المتقدم عبر Claude.</p></div>
+        <div class="card step key tilt reveal" style="--d:.6s"><div class="num">5</div><h3>Critique via Kimi</h3><span class="tool">Kimi</span><p class="ar">نقد المشروع، استخراج الثغرات ونقاط الضعف عبر Kimi.</p></div>
+        <div class="card step tilt reveal" style="--d:.7s"><div class="num">6</div><h3>Refined Final Version</h3><p class="ar">دمج التحسينات والوصول للنسخة النهائية المطورة.</p></div>
+      </div>
+      <p class="loop reveal" style="--d:.85s"><b>↻</b> Iterate · كرّر الدورة حتى الوصول لأفضل نسخة</p>
+    </div>
+  </section>
+
+  <!-- ===================== 6 · DEEP TECH & MINDSET ===================== -->
+  <section class="slide" data-title="Deep Tech & Mindset">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">06 · Deep Tech &amp; Engineering Mindset</div>
+        <h2 class="title ar">البرمجة وتوجيه الذكاء الاصطناعي</h2>
+      </div>
+      <div class="stack reveal" style="--d:.25s">
+        <div class="card tech tilt"><div class="mini"><div class="cube wire" data-size="20"></div></div>Python</div>
+        <div class="card tech tilt"><div class="mini"><div class="cube wire" data-size="20"></div></div>HTML5</div>
+        <div class="card tech tilt"><div class="mini"><div class="cube wire" data-size="20"></div></div>CSS3</div>
+        <div class="card tech tilt"><div class="mini"><div class="cube wire" data-size="20"></div></div>JavaScript</div>
+      </div>
+      <p class="tag-note reveal" style="--d:.3s">Learning &amp; Applying · أتعلّم وأطبّق</p>
+      <div class="vs">
+        <div class="card mind bad tilt reveal" style="--d:.4s">
+          <h3 class="ar">المستهلك <small>Consumer</small></h3>
+          <p class="ar">يطلب كوداً مباشراً وسطحياً دون مناقشة الفكرة أو إعطاء سياق.</p>
+        </div>
+        <div class="vs-mid reveal" style="--d:.5s">VS</div>
+        <div class="card mind good tilt reveal" style="--d:.5s">
+          <h3 class="ar">AnwarTannaz — الصانع <small>Maker</small></h3>
+          <p class="ar">يناقش المنطق أولاً، يكتب برومت شاملاً وعميقاً، ويوجّه الذكاء الاصطناعي كمساعد تنفيذي.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 7 · PORTFOLIO ===================== -->
+  <section class="slide" data-title="Portfolio">
+    <div class="wrap">
+      <div class="head reveal" style="--d:.1s">
+        <div class="kicker">07 · Live Portfolio</div>
+        <h2 class="title ar">معرض المشاريع والحلول <span style="font-weight:600">(Portfolio)</span></h2>
+      </div>
+      <div class="projects" id="projects"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 8 · CONCLUSION & Q&A ===================== -->
+  <section class="slide" data-title="Conclusion & Q&A">
+    <div class="wrap two">
+      <div class="closing">
+        <div class="reveal" style="--d:.1s">
+          <div class="kicker">08 · Conclusion &amp; Q&amp;A</div>
+          <h2 class="title ar">المستقبل لا يُنتظر، بل يُبنى</h2>
+          <p class="sub">The future isn’t awaited — it’s built.</p>
+        </div>
+        <div class="card qa tilt reveal" style="--d:.3s">
+          <h3>Ask me anything · <span class="ar">اسألني أي شيء</span></h3>
+          <button class="qa-mic" id="qaMic" aria-label="Toggle microphone">
+            <span class="dot"></span>
+            <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="qa-state" id="qaState">Mic off · اضغط للتفعيل</span>
+          </button>
+          <p class="final">Not just using tech, engineering the future.<span class="ar">لا أستهلك التكنولوجيا، بل أطوّعها لأصنع بها المستقبل</span></p>
+        </div>
+      </div>
+
+      <div class="scene reveal" style="--d:.35s">
+        <div class="tilt3d"><div class="rig spin" style="--spin:24s">
+          <div class="cube" data-size="130" data-label="?" style="animation-duration:18s"></div>
+          <div class="torus" data-R="150" data-r="14" data-n="30" style="transform:rotateX(75deg)"></div>
+          <div class="torus" data-R="190" data-r="9" data-n="34" style="transform:rotateX(60deg) rotateZ(35deg)"></div>
+          <div class="orbit" style="--t:12s;--tilt:20deg"><div class="sat" style="--x:225px"><div class="sphere" data-size="34"></div></div></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Top-right microphone status widget -->
+<div class="mic-widget" id="micWidget" data-state="idle">
+  <button class="mic" id="micBtn" aria-label="Toggle voice control" title="Toggle voice (M)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+  </button>
+  <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="mw-txt"><b id="micStatus">Voice off</b><span id="heard">Click the mic or press M · انقر الميكروفون</span></div>
+</div>
+
+<div class="counter"><span class="brand">AnwarTannaz</span><span id="count" role="status" aria-live="polite"><b>01</b> / 08</span></div>
+
+<!-- Bottom dock: prev · indicator dots · next · recognition language · help -->
+<nav class="dock" aria-label="Presentation controls">
+  <button class="arrow" id="prevBtn" aria-label="Previous slide">‹</button>
+  <div class="dots" id="dots"></div>
+  <button class="arrow" id="nextBtn" aria-label="Next slide">›</button>
+  <div class="seg" id="langSeg" title="Recognition language">
+    <button data-mode="auto" class="on">Auto</button><button data-mode="en-US">EN</button><button data-mode="ar-SA">عربي</button>
+  </div>
+  <button class="help-btn" id="helpBtn" aria-label="Show commands" aria-expanded="false" title="Commands (?)">?</button>
+</nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<aside class="help card" id="help" hidden role="dialog" aria-label="Voice commands and shortcuts">
+  <h3>Voice · الأوامر الصوتية</h3>
+  <ul>
+    <li><span>Next</span><span>“next” “forward” · “التالي” “بعد”</span></li>
+    <li><span>Previous</span><span>“back” “previous” · “السابق” “قبل”</span></li>
+    <li><span>Start / End</span><span>“first” “last” · “البداية” “النهاية”</span></li>
+    <li><span>Mic off</span><span>“stop” · “توقف”</span></li>
+  </ul>
+  <h3>Keys</h3>
+  <ul>
+    <li><span><kbd>←</kbd> <kbd>→</kbd> <kbd>Space</kbd></span><span>Navigate</span></li>
+    <li><span><kbd>Home</kbd> <kbd>End</kbd></span><span>First / last</span></li>
+    <li><span><kbd>M</kbd></span><span>Mic on/off</span></li>
+    <li><span><kbd>?</kbd> <kbd>Esc</kbd></span><span>Help</span></li>
+  </ul>
+  <p>Privacy: voice is processed by your browser’s speech service, which is cloud-based in Chrome and Edge.</p>
+</aside>
+
+<div class="notice" id="notice" hidden role="alert">
+  <span>Voice control needs <b>Chrome</b> or <b>Edge</b>. You can still navigate with <b>← →</b>, swipe, or the buttons.</span>
+  <button id="noticeOk">OK</button>
+</div>
+
+<script>
+/* =========================================================
+   0. CONFIG & CONSTANTS
+   ========================================================= */
+const CONFIG = {
+  projects: [
+    { n:'SML AI',        tag:'Live project', url:'https://s-m-l-ai.vercel.app/' },
+    { n:'PromptSmith',   tag:'Live project', url:'https://promptsmith-kappa.vercel.app/' },
+    { n:'Institutional Website', ar:'موقع المؤسسة', tag:'Featured', featured:true, url:'https://razi-school-v1.vercel.app/' }
+  ]
+};
+const LANG_SWITCH_MS = 4000;       // Auto mode: how long each language is listened to
+const SPEECH_IDLE_MS = 1200;       // Auto mode: never switch within this time of speech
+const COMMAND_DEBOUNCE_MS = 800;   // min gap between the same command firing twice
+const RESTART_BASE_MS = 150;       // delay before a recognition session restarts
+const RESTART_MAX_MS = 5000;       // cap for the exponential back-off
+const MAX_NET_FAILS = 3;           // consecutive network errors before giving up
+const SWIPE_THRESHOLD = 70;        // px
+
+/* =========================================================
+   A. 3D PRIMITIVE BUILDERS
+   ========================================================= */
+const mk = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
+function buildCube(n){
+  const s = +n.dataset.size || 100;
+  n.style.setProperty('--s', s + 'px');
+  ['f','b','r','l','t','bt'].forEach(k => {
+    const f = mk('face ' + k);
+    if (n.dataset.label) f.textContent = n.dataset.label;
+    n.appendChild(f);
+  });
+}
+function buildSphere(n){
+  const S = +n.dataset.size || 200;
+  n.style.width = n.style.height = S + 'px';
+  n.appendChild(mk('core bb'));
+  for (let i = 0; i < 6; i++){ const r = mk('ring'); r.style.transform = `rotateY(${i * 30}deg)`; n.appendChild(r); }
+  [-60,-30,0,30,60].forEach(deg => {
+    const a = deg * Math.PI / 180, d = S * Math.cos(a), y = S / 2 * Math.sin(a);
+    const r = mk('ring lat');
+    r.style.cssText = `width:${d}px;height:${d}px;left:${(S-d)/2}px;top:${(S-d)/2}px;transform:rotateX(90deg) translateZ(${y}px)`;
+    n.appendChild(r);
+  });
+}
+function buildTorus(n){
+  const R = +n.dataset.R || 120, r = +n.dataset.r || 14, N = +n.dataset.n || 28;
+  for (let i = 0; i < N; i++){
+    const d = mk('tr');
+    d.style.cssText = `width:${2*r}px;height:${2*r}px;margin:${-r}px 0 0 ${-r}px;transform:rotateY(${i*360/N}deg) translateX(${R}px)`;
+    n.appendChild(d);
+  }
+}
+
+/* =========================================================
+   B. PORTFOLIO CARDS — built with DOM APIs (textContent)
+   ========================================================= */
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const projectsEl = document.getElementById('projects');
+CONFIG.projects.forEach((p, i) => {
+  const card = el('article', 'card proj tilt reveal' + (p.featured ? ' featured' : ''));
+  card.style.setProperty('--d', (0.25 + i * 0.12).toFixed(2) + 's');
+
+  const art = el('div', 'art scene'); art.style.minHeight = '120px';
+  const t3 = el('div', 'tilt3d'), rig = el('div', 'rig spin');
+  rig.style.setProperty('--spin', (14 + i * 4) + 's');
+  const shape = el('div', i === 0 ? 'sphere' : 'cube wire'); shape.dataset.size = i === 0 ? '78' : '60';
+  const ring = el('div', 'torus'); Object.assign(ring.dataset, { R:'58', r:'7', n:'20' }); ring.style.transform = 'rotateX(70deg)';
+  rig.append(shape, ring); t3.appendChild(rig); art.appendChild(t3);
+
+  const top = el('div', 'top'); top.append(el('span', 'tag' + (p.featured ? ' star' : ''), p.tag));
+  const body = el('div'); const h = el('h3', '', p.n); body.appendChild(h);
+  if (p.ar) { const a = el('div', 'ar muted', p.ar); a.style.cssText = 'font-size:.95rem;direction:ltr;text-align:left'; body.appendChild(a); }
+  body.appendChild(el('div', 'host', new URL(p.url).host));
+
+  const btn = el('a', 'btn', 'Open Live ↗');
+  btn.href = p.url; btn.target = '_blank'; btn.rel = 'noopener noreferrer';
+  btn.setAttribute('aria-label', 'Open ' + p.n + ' live site in a new tab');
+
+  card.append(top, art, body, btn);
+  projectsEl.appendChild(card);
+});
+
+/* Build all 3D shapes (static ones in the HTML + the ones just created) */
+document.querySelectorAll('.cube').forEach(buildCube);
+document.querySelectorAll('.sphere').forEach(buildSphere);
+document.querySelectorAll('.torus').forEach(buildTorus);
+
+/* =========================================================
+   C. DECK ENGINE
+   ========================================================= */
+let langMode = 'auto';
+const I18N = {
+  next:{en:'Next',ar:'التالي'}, prev:{en:'Previous',ar:'السابق'},
+  first:{en:'Start',ar:'البداية'}, last:{en:'End',ar:'النهاية'},
+  stop:{en:'Voice off',ar:'تم إيقاف الصوت'},
+  firstEdge:{en:'First slide',ar:'الشريحة الأولى'}, lastEdge:{en:'Last slide',ar:'آخر شريحة'}
+};
+const label = key => { const t = I18N[key]; return langMode === 'en-US' ? t.en : langMode === 'ar-SA' ? t.ar : `${t.en} · ${t.ar}`; };
+
+const slides  = [...document.querySelectorAll('.slide')];
+const dotsEl  = document.getElementById('dots');
+const countEl = document.getElementById('count');
+const barEl   = document.getElementById('progressBar');
+const toastEl = document.getElementById('toast');
+const widget  = document.getElementById('micWidget');
+const help    = document.getElementById('help');
+const helpBtn = document.getElementById('helpBtn');
+let current = 0, toastTimer;
+
+slides.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.title = s.dataset.title; b.setAttribute('aria-label', 'Go to slide ' + (i + 1) + ': ' + s.dataset.title);
+  b.onclick = () => go(i);
+  dotsEl.appendChild(b);
+});
+
+function toast(msg, ms = 1400){
+  toastEl.textContent = msg; toastEl.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+  widget.classList.remove('flash'); void widget.offsetWidth; widget.classList.add('flash');
+}
+
+const pad = n => String(n).padStart(2, '0');
+function go(i, silent){
+  if (i < 0 || i >= slides.length){ if (!silent) toast(label(i < 0 ? 'firstEdge' : 'lastEdge')); return; }
+  current = i;
+  slides.forEach((s, k) => {
+    s.classList.toggle('active', k === i);
+    s.classList.toggle('before', k < i);
+    s.classList.toggle('after',  k > i);
+    s.setAttribute('aria-hidden', k !== i);
+  });
+  slides[i].scrollTop = 0;
+  [...dotsEl.children].forEach((d, k) => { d.classList.toggle('on', k === i); d.setAttribute('aria-current', k === i ? 'true' : 'false'); });
+  const b = document.createElement('b'); b.textContent = pad(i + 1);
+  const t = document.createElement('span'); t.className = 'sr'; t.textContent = ' — ' + slides[i].dataset.title;
+  countEl.replaceChildren(b, ` / ${pad(slides.length)}`, t);
+  barEl.style.width = ((i + 1) / slides.length * 100) + '%';
+}
+const next = () => go(current + 1);
+const prev = () => go(current - 1);
+go(0, true);
+
+function toggleHelp(force){
+  help.hidden = force !== undefined ? !force : !help.hidden;
+  helpBtn.setAttribute('aria-expanded', String(!help.hidden));
+}
+document.getElementById('nextBtn').onclick = next;
+document.getElementById('prevBtn').onclick = prev;
+helpBtn.onclick = () => toggleHelp();
+
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest && e.target.closest('a,button') && (e.key === ' ' || e.key === 'Enter')) return;   // let focused controls work
+  switch (e.key){
+    case 'ArrowRight': case 'PageDown': case ' ': e.preventDefault(); next(); break;
+    case 'ArrowLeft':  case 'PageUp':   e.preventDefault(); prev(); break;
+    case 'Home': go(0); break;
+    case 'End':  go(slides.length - 1); break;
+    case 'm': case 'M': toggleMic(); break;
+    case '?': toggleHelp(); break;
+    case 'Escape': toggleHelp(false); break;
+  }
+});
+let tx = null, ty = null;
+addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, {passive:true});
+addEventListener('touchend', e => {
+  if (tx === null) return;
+  const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+  if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) (dx < 0 ? next : prev)();
+  tx = ty = null;
+}, {passive:true});
+
+/* =========================================================
+   D. POINTER EFFECTS
+   ========================================================= */
+document.querySelectorAll('.tilt').forEach(c => {
+  c.addEventListener('pointermove', e => {
+    const r = c.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    c.style.setProperty('--ry', ((x - .5) * 10).toFixed(2) + 'deg');
+    c.style.setProperty('--rx', ((.5 - y) * 10).toFixed(2) + 'deg');
+    c.style.setProperty('--gx', (x * 100) + '%');
+    c.style.setProperty('--gy', (y * 100) + '%');
+  });
+  c.addEventListener('pointerleave', () => { c.style.setProperty('--rx','0deg'); c.style.setProperty('--ry','0deg'); });
+});
+addEventListener('pointermove', e => {
+  const r = document.documentElement.style;
+  r.setProperty('--mx', (e.clientX / innerWidth  - .5) * 2);
+  r.setProperty('--my', (e.clientY / innerHeight - .5) * 2);
+}, {passive:true});
+
+/* =========================================================
+   E. VOICE CONTROL — Web Speech API (English + Arabic)
+   ========================================================= */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn   = document.getElementById('micBtn');
+const statusEl = document.getElementById('micStatus');
+const heardEl  = document.getElementById('heard');
+const langSeg  = document.getElementById('langSeg');
+const notice   = document.getElementById('notice');
+const heroCta  = document.getElementById('heroCta');
+const heroTxt  = document.getElementById('heroCtaTxt');
+const qaMic    = document.getElementById('qaMic');
+const qaState  = document.getElementById('qaState');
+const IDLE_HINT = 'Click the mic or press M · انقر الميكروفون';
+
+const norm = s => s.toLowerCase()
+  .replace(/[ً-ٰٟـ]/g,'')
+  .replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
+  .replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
+
+/* Vocabulary in normalised form. Includes phonetic Arabic spellings of the English words. */
+const CMD = {
+  stop:  ['stop','stop listening','mute','توقف','توقفي','اسكت','ايقاف','قف','ستوب'],
+  prev:  ['previous','previous slide','back','go back','backward','السابق','السابقه','الشريحه السابقه','قبل','قبله','رجوع','ارجع','للخلف','برفيوس','بريفيوس','باك'],
+  next:  ['next','next slide','forward','go next','continue','التالي','التاليه','الشريحه التاليه','بعد','بعده','تقدم','نكست','نيكست','نكسد'],
+  first: ['first','first slide','restart','start over','البدايه','الاولي','من البدايه'],
+  last:  ['last','last slide','end','النهايه','الاخيره']
+};
+const matches = (text, words) => {
+  const tokens = text.split(' ');
+  return words.some(w => w.includes(' ') ? text.includes(w) : tokens.includes(w));
+};
+function detect(text){
+  const t = norm(text);
+  if (!t) return null;
+  for (const k of ['stop','prev','next','first','last']) if (matches(t, CMD[k])) return k;
+  return null;
+}
+const ACTIONS = {
+  next:  () => { next();                toast(label('next')); },
+  prev:  () => { prev();                toast(label('prev')); },
+  first: () => { go(0);                 toast(label('first')); },
+  last:  () => { go(slides.length - 1); toast(label('last')); },
+  stop:  () => { stopMic();             toast(label('stop')); }
+};
+
+let rec = null, sid = 0, wantListening = false, curLang = 'en-US';
+let switchTimer = null, restartTimer = null, forceTimer = null;
+let netFails = 0, restartDelay = RESTART_BASE_MS;
+let speaking = false, lastSpeechAt = 0, privacyShown = false;
+let handled = new Set();
+const lastFire = {};
+
+/* One place that updates every mic indicator: top-right widget, hero button, Q&A card */
+function setState(state, status, hint){
+  widget.dataset.state = state;
+  document.body.dataset.mic = state;
+  if (status) statusEl.textContent = status;
+  if (hint)   heardEl.textContent  = hint;
+  heroTxt.textContent = state === 'listening' ? 'Voice active — say “Next” · التالي'
+                      : (state === 'denied' || state === 'unsupported') ? 'Voice unavailable — use ← →'
+                      : 'Start Voice Navigation';
+  qaState.textContent = state === 'listening' ? 'Mic live · الميكروفون يعمل' : 'Mic off · اضغط للتفعيل';
+}
+function clearTimers(){ clearTimeout(switchTimer); clearTimeout(restartTimer); clearTimeout(forceTimer); }
+const setHearing = on => document.body.classList.toggle('hearing', on);
+
+function handleResult(e){
+  for (let i = e.resultIndex; i < e.results.length; i++){
+    const res = e.results[i];
+    heardEl.textContent = '“' + res[0].transcript.trim() + '”';
+    if (handled.has(i)) continue;
+    for (let a = 0; a < res.length; a++){
+      const cmd = detect(res[a].transcript);
+      if (!cmd) continue;
+      const now = performance.now();
+      if (now - (lastFire[cmd] || 0) > COMMAND_DEBOUNCE_MS){ lastFire[cmd] = now; handled.add(i); ACTIONS[cmd](); }
+      break;
+    }
+  }
+}
+
+function armSwitch(){
+  clearTimeout(switchTimer);
+  if (langMode !== 'auto') return;
+  switchTimer = setTimeout(function tick(){
+    if (!rec || !wantListening) return;
+    if (speaking || performance.now() - lastSpeechAt < SPEECH_IDLE_MS){ switchTimer = setTimeout(tick, 500); return; }
+    try { rec.stop(); } catch (_) {}
+  }, LANG_SWITCH_MS);
+}
+
+function startSession(){
+  if (!wantListening) return;
+  clearTimeout(restartTimer);
+  const mySid = ++sid;
+  const r = new SR();
+  rec = r;
+  r.continuous = true; r.interimResults = true; r.maxAlternatives = 3; r.lang = curLang;
+  handled = new Set(); speaking = false;
+
+  r.onstart = () => {
+    if (mySid !== sid) return;
+    netFails = 0; restartDelay = RESTART_BASE_MS;
+    setState('listening',
+      'Listening · ' + (curLang === 'ar-SA' ? 'عربي' : 'EN') + (langMode === 'auto' ? ' (auto)' : ''),
+      'Say “Next” or “التالي”');
+  };
+  r.onspeechstart = () => { if (mySid !== sid) return; speaking = true; setHearing(true); };
+  r.onspeechend   = () => { if (mySid !== sid) return; speaking = false; lastSpeechAt = performance.now(); setHearing(false); };
+  r.onresult = e => { if (mySid !== sid) return; lastSpeechAt = performance.now(); handleResult(e); };
+  r.onerror = e => {
+    if (mySid !== sid) return;
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){
+      wantListening = false; clearTimers();
+      setState('denied', 'Mic blocked', 'Allow microphone access in the address bar, then click the mic');
+    } else if (e.error === 'network'){
+      if (++netFails >= MAX_NET_FAILS){
+        wantListening = false; clearTimers();
+        setState('denied', 'Speech unavailable', 'Check your internet connection, then click the mic to retry');
+      } else {
+        restartDelay = Math.min(restartDelay * 2, RESTART_MAX_MS);
+        setState('listening', 'Network issue', 'Retrying…');
+      }
+    }
+  };
+  r.onend = () => {
+    if (mySid !== sid) return;
+    clearTimeout(switchTimer); clearTimeout(forceTimer);
+    speaking = false; setHearing(false);
+    if (!wantListening){
+      if (widget.dataset.state !== 'denied') setState('idle', 'Voice off', IDLE_HINT);
+      return;
+    }
+    if (langMode === 'auto') curLang = curLang === 'en-US' ? 'ar-SA' : 'en-US';
+    restartTimer = setTimeout(startSession, restartDelay);
+  };
+
+  try { r.start(); } catch (_) { restartTimer = setTimeout(startSession, restartDelay); }
+  armSwitch();
+}
+
+function restartSession(){
+  if (!wantListening || !rec) return;
+  clearTimeout(switchTimer); clearTimeout(forceTimer);
+  const r = rec, my = sid;
+  try { r.stop(); } catch (_) {}
+  forceTimer = setTimeout(() => {
+    if (my === sid && wantListening){ try { r.abort(); } catch (_) {} startSession(); }
+  }, 700);
+}
+
+function stopMic(){
+  wantListening = false; clearTimers(); sid++;
+  try { rec && rec.abort(); } catch (_) {}
+  rec = null; speaking = false; setHearing(false);
+  setState('idle', 'Voice off', IDLE_HINT);
+}
+
+function showUnsupported(){
+  setState('unsupported', 'Voice unsupported', 'Use Chrome or Edge · arrows still work');
+  notice.hidden = false;
+}
+function showPrivacyOnce(){
+  if (privacyShown) return;
+  privacyShown = true;
+  toast('Voice is processed by your browser’s speech service (cloud-based in Chrome) · تتم معالجة الصوت عبر خدمة التعرف في المتصفح', 6500);
+}
+function toggleMic(){
+  if (!SR){ showUnsupported(); return; }
+  if (wantListening){ stopMic(); return; }
+  wantListening = true; netFails = 0; restartDelay = RESTART_BASE_MS;
+  startSession(); showPrivacyOnce();
+}
+micBtn.onclick = toggleMic;
+qaMic.onclick = toggleMic;
+heroCta.onclick = () => { if (wantListening) next(); else toggleMic(); };   // start voice first, then it acts as "next"
+document.getElementById('noticeOk').onclick = () => { notice.hidden = true; };
+
+langSeg.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  langMode = b.dataset.mode;
+  [...langSeg.children].forEach(x => x.classList.toggle('on', x === b));
+  if (langMode !== 'auto') curLang = langMode;
+  restartSession();
+});
+
+if (!SR) showUnsupported();
+
+/* =========================================================
+   F. BACKGROUND — glowing network nodes (canvas)
+   ========================================================= */
+(() => {
+  const cv = document.getElementById('bg'), ctx = cv.getContext('2d');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const COLORS = ['0,242,254','79,172,254','59,130,246'];
+  let W, H, pts = [], raf;
+
+  function resize(){
+    const dpr = Math.min(devicePixelRatio || 1, 1.5);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const n = Math.round(Math.min(80, W * H / 20000));
+    pts = Array.from({length:n}, (_, i) => ({
+      x: Math.random()*W, y: Math.random()*H, c: COLORS[i % 3], big: i % 7 === 0,
+      vx:(Math.random()-.5)*.22, vy:(Math.random()-.5)*.22, r: Math.random()*1.4+.5
+    }));
+  }
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    const L = 150;
+    for (let i = 0; i < pts.length; i++){
+      const p = pts[i];
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+      if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
+      for (let j = i + 1; j < pts.length; j++){
+        const q = pts[j], dx = p.x - q.x, dy = p.y - q.y, d = dx*dx + dy*dy;
+        if (d < L*L){
+          ctx.strokeStyle = `rgba(79,172,254,${(1 - Math.sqrt(d)/L) * .15})`;
+          ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        }
+      }
+      if (p.big){ ctx.fillStyle = `rgba(${p.c},.09)`; ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, 6.283); ctx.fill(); }
+      ctx.fillStyle = `rgba(${p.c},.6)`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill();
+    }
+    raf = requestAnimationFrame(draw);
+  }
+  resize(); addEventListener('resize', resize);
+  draw();
+  if (reduce) cancelAnimationFrame(raf);
+  document.addEventListener('visibilitychange', () => {
+    if (reduce) return;
+    document.hidden ? cancelAnimationFrame(raf) : draw();
+  });
+})();
+</script>
+</body>
+</html>
